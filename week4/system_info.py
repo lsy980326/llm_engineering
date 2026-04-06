@@ -1,5 +1,6 @@
 import os
 import platform
+from pathlib import Path
 import shutil
 import subprocess
 
@@ -206,7 +207,61 @@ def _toolchain_block():
     msvc_cl = ""
     cl_path = _which("cl")
     if cl_path:
+        # cl이 이미 PATH에 잡혀 있는 경우
         msvc_cl = _first_line(_run("cl 2>&1"))
+    else:
+        # MSVC는 보통 vcvars*.bat 실행 후 PATH가 잡힙니다.
+        # 그래서 vcvars64.bat가 존재하면 호출해서 where cl /Bv로 감지합니다.
+        program_files_x86 = os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")
+        vcvars_candidates = [
+            Path(program_files_x86)
+            / "Microsoft Visual Studio"
+            / "2022"
+            / "BuildTools"
+            / "VC"
+            / "Auxiliary"
+            / "Build"
+            / "vcvars64.bat",
+            Path(program_files_x86)
+            / "Microsoft Visual Studio"
+            / "2022"
+            / "Community"
+            / "VC"
+            / "Auxiliary"
+            / "Build"
+            / "vcvars64.bat",
+            Path(program_files_x86)
+            / "Microsoft Visual Studio"
+            / "2022"
+            / "Professional"
+            / "VC"
+            / "Auxiliary"
+            / "Build"
+            / "vcvars64.bat",
+        ]
+
+        for vcvars in vcvars_candidates:
+            try:
+                if not vcvars.exists():
+                    continue
+                # where cl: 설치/경로 감지용(빠름)
+                where_out = _run(
+                    f'cmd /d /c ""call "{vcvars}" && where cl""',
+                    timeout=5,
+                )
+                if where_out:
+                    # cl 버전 한 줄만 얻기
+                    bv_out = _run(
+                        f'cmd /d /c ""call "{vcvars}" && cl /Bv""',
+                        timeout=5,
+                    )
+                    msvc_cl = _first_line(bv_out) or "MSVC cl available (via vcvars64.bat)"
+                    break
+                # where cl이 안 나오더라도 vcvars는 존재하므로, 최소한 존재표시
+                msvc_cl = "MSVC vcvars64.bat found (cl not on PATH)"
+            except Exception:
+                # best-effort detection; 실패해도 전체 동작은 유지
+                pass
 
     # Build tools (presence + short version line)
     cmake = ver_line("cmake")

@@ -1,7 +1,7 @@
 from datetime import datetime
 from tqdm import tqdm
 from datasets import load_dataset
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ThreadPoolExecutor
 from pricer.parser import parse
 import os
 
@@ -40,14 +40,16 @@ class ItemLoader:
 
     def load_in_parallel(self, workers):
         """
-        Use concurrent.futures to farm out the work to process chunks of datapoints -
-        This speeds up processing significantly, but will tie up your computer while it's doing so!
+        ThreadPoolExecutor 사용 - Windows Jupyter 환경에서도 안정적으로 동작
         """
         results = []
-        chunk_count = (len(self.dataset) // CHUNK_SIZE) + 1
-        with ProcessPoolExecutor(max_workers=workers) as pool:
-            for batch in tqdm(pool.map(self.from_chunk, self.chunk_generator()), total=chunk_count):
+        chunks = list(self.chunk_generator())
+        chunk_count = len(chunks)
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            for i, batch in enumerate(pool.map(self.from_chunk, chunks)):
                 results.extend(batch)
+                if (i + 1) % 10 == 0 or (i + 1) == chunk_count:
+                    print(f"  진행 중: {i+1}/{chunk_count} 청크 완료 ({len(results):,}개 항목)", flush=True)
         return results
 
     def load(self, workers=WORKERS):
